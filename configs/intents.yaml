@@ -1,0 +1,47 @@
+intents:
+  - name: web-server-intent
+    match:
+      comm_contains:
+        - nginx
+        - apache
+        - httpd
+    spec:
+      allowShell: false
+      allowNamespaceOps: false
+      allowPrivilegeOps: false
+      allowDockerSock: false
+      expectedProcesses:
+        - nginx
+        - apache
+        - httpd
+      allowedPaths:
+        read:
+          - /usr/share/nginx
+          - /etc/nginx
+        write:
+          - /var/log/nginx
+          - /tmp
+
+  - name: debug-pod-intent
+    match:
+      comm_contains:
+        - sh
+        - bash
+        - busybox
+    spec:
+      allowShell: true
+      allowNamespaceOps: false
+      allowPrivilegeOps: false
+      allowDockerSock: false
+
+  - name: privileged-diagnostic-intent
+    match:
+      comm_contains:
+        - strace
+        - perf
+        - diagnostic
+    spec:
+      allowShell: true
+      allowNamespaceOps: true
+      allowPrivilegeOps: true
+      allowDockerSock: true

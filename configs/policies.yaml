@@ -1,74 +1,75 @@
-# configs/policies.yaml
 policies:
-  # ============================================================
-  # CRITICAL: Reverse Shell Detection
-  # ============================================================
-  - name: detect-reverse-shell-network
+  # Reverse shell and suspicious command execution
+  - name: detect-shell-exec
     type: exec
-    description: "Reverse shell with network redirection"
-    severity: CRITICAL
+    description: "Shell execution; final verdict depends on workload intent and context"
+    severity: HIGH
     match:
       file_contains:
-        - "/bash"
-        - "/sh"
-    action: log  # 일단 log로 (너무 많으면)
+        - /bash
+        - /sh
+    action: log
 
   - name: detect-netcat-reverse-shell
     type: exec
-    description: "Netcat reverse shell"
+    description: "Netcat-style reverse shell tool execution"
     severity: CRITICAL
     match:
       file_contains:
-        - "/nc"
-        - "/ncat"
-        - "/netcat"
+        - /nc
+        - /ncat
+        - /netcat
     action: alert
 
-  - name: detect-python-reverse-shell
+  - name: detect-python-exec
     type: exec
-    description: "Python reverse shell"
-    severity: CRITICAL
+    description: "Python execution can be used for reverse shells or post-exploitation"
+    severity: HIGH
     match:
       file_contains:
-        - "/python"
+        - /python
     action: alert
 
-  # ============================================================
-  # CRITICAL: Sensitive File Access
-  # ============================================================
-  - name: detect-shadow-access
+  # Sensitive files
+  - name: deny-shadow-access
     type: open
-    description: "Unauthorized access to /etc/shadow"
+    description: "Access to /etc/shadow"
     severity: CRITICAL
     match:
       path_contains:
-        - "/etc/shadow"
-    action: alert
+        - /etc/shadow
+    action: deny
 
-  # /etc/passwd는 제외 (정상 동작)
-
-  - name: detect-kcore-access
+  - name: deny-kcore-access
     type: open
-    description: "Access to kernel memory"
+    description: "Access to kernel memory via /proc/kcore"
     severity: CRITICAL
     match:
       path_contains:
-        - "/proc/kcore"
-    action: alert
+        - /proc/kcore
+    action: deny
 
-  # ============================================================
-  # HIGH: Container Escape
-  # ============================================================
-  - name: detect-fsconfig-exploit
-    type: fsconfig
-    description: "CVE-2022-0185 container escape"
+  - name: deny-docker-sock-access
+    type: open
+    description: "Access to container runtime socket"
     severity: CRITICAL
+    match:
+      path_contains:
+        - /var/run/docker.sock
+        - /run/docker.sock
+    action: deny
+
+  # Container escape primitives
+  - name: detect-mount-syscall
+    type: mount
+    description: "Mount operation from a monitored workload"
+    severity: HIGH
     match: {}
     action: alert
 
-  - name: detect-mount-syscall
-    type: mount
-    description: "Suspicious mount operation"
+  - name: detect-unshare-namespace
+    type: unshare
+    description: "Namespace unshare operation"
     severity: HIGH
     match: {}
     action: alert

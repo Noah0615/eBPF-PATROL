@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -17,10 +18,12 @@ func main() {
 		log.Fatal("This program must be run as root (sudo)")
 	}
 
-	policyPath := "configs/policies.yaml"
-	bpfObjPath := "gen/patrol_bpfel.o"
+	policyPath := flag.String("policy", "configs/policies.yaml", "path to policy YAML")
+	intentPath := flag.String("intent", "configs/intents.yaml", "path to intent YAML")
+	bpfObjPath := flag.String("bpf", "gen/patrol_bpfel.o", "path to compiled eBPF object")
+	flag.Parse()
 
-	application, err := app.New(policyPath, bpfObjPath)
+	application, err := app.New(*policyPath, *intentPath, *bpfObjPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize: %v", err)
 	}

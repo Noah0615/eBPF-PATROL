@@ -73,6 +73,7 @@ SEC("tracepoint/syscalls/sys_enter_clone")
 int trace_clone(struct trace_event_raw_sys_enter *ctx)
 {
     struct event *e;
+    unsigned long flags = (unsigned long)ctx->args[0];
 
     e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e)
@@ -80,6 +81,26 @@ int trace_clone(struct trace_event_raw_sys_enter *ctx)
 
     __builtin_memset(e, 0, sizeof(*e));
     e->type = EVENT_CLONE;
+    e->flags = (__u32)flags;
+    fill_common(e);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_unshare")
+int trace_unshare(struct trace_event_raw_sys_enter *ctx)
+{
+    struct event *e;
+    unsigned long flags = (unsigned long)ctx->args[0];
+
+    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e)
+        return 0;
+
+    __builtin_memset(e, 0, sizeof(*e));
+    e->type = EVENT_UNSHARE;
+    e->flags = (__u32)flags;
     fill_common(e);
 
     bpf_ringbuf_submit(e, 0);
@@ -91,7 +112,6 @@ int trace_ptrace(struct trace_event_raw_sys_enter *ctx)
 {
     struct event *e;
     long request = (long)ctx->args[0];
-    pid_t target_pid = (pid_t)ctx->args[1];
 
     e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e)
@@ -101,12 +121,6 @@ int trace_ptrace(struct trace_event_raw_sys_enter *ctx)
     e->type = EVENT_PTRACE;
     e->flags = request;
     fill_common(e);
-    
-    // Store target PID in arg1 as string
-    char buf[16];
-    __builtin_memset(buf, 0, sizeof(buf));
-    // Simple integer to string (just store the value)
-    e->flags = target_pid;
 
     bpf_ringbuf_submit(e, 0);
     return 0;

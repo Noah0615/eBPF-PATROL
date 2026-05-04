@@ -14,6 +14,7 @@ enum event_type {
     EVENT_PTRACE,
     EVENT_MOUNT,
     EVENT_SOCKET,
+    EVENT_UNSHARE,
 };
 
 struct event {

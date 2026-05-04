@@ -15,6 +15,7 @@ type Objects struct {
 	TracePtrace  *ebpf.Program `ebpf:"trace_ptrace"`
 	TraceMount   *ebpf.Program `ebpf:"trace_mount"`
 	TraceSocket  *ebpf.Program `ebpf:"trace_socket"`
+	TraceUnshare *ebpf.Program `ebpf:"trace_unshare"`
 	Events       *ebpf.Map     `ebpf:"events"`
 
 	links []link.Link
@@ -44,6 +45,9 @@ func (o *Objects) Close() {
 	if o.TraceSocket != nil {
 		_ = o.TraceSocket.Close()
 	}
+	if o.TraceUnshare != nil {
+		_ = o.TraceUnshare.Close()
+	}
 	if o.Events != nil {
 		_ = o.Events.Close()
 	}
@@ -72,6 +76,7 @@ func LoadObjects(objPath string) (*Objects, *ringbuf.Reader, error) {
 		{"ptrace", "syscalls", "sys_enter_ptrace", objs.TracePtrace},
 		{"mount", "syscalls", "sys_enter_mount", objs.TraceMount},
 		{"socket", "syscalls", "sys_enter_socket", objs.TraceSocket},
+		{"unshare", "syscalls", "sys_enter_unshare", objs.TraceUnshare},
 	}
 
 	for _, att := range attachments {

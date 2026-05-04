@@ -11,6 +11,7 @@ const (
 	EventPtrace EventType = 4
 	EventMount EventType = 5
 	EventSocket EventType = 6
+	EventUnshare EventType = 7
 )
 
 func (t EventType) String() string {
@@ -27,6 +28,8 @@ func (t EventType) String() string {
 		return "mount"
 	case EventSocket:
 		return "socket"
+	case EventUnshare:
+		return "unshare"
 	default:
 		return "unknown"
 	}

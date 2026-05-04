@@ -8,6 +8,7 @@ import (
 	"ebpf-patrol/internal/analyzer"
 	"ebpf-patrol/internal/bpf"
 	"ebpf-patrol/internal/event"
+	"ebpf-patrol/internal/intent"
 	"ebpf-patrol/internal/policy"
 
 	"github.com/cilium/ebpf/ringbuf"
@@ -19,13 +20,20 @@ type App struct {
 	analyzer *analyzer.Analyzer
 }
 
-func New(policyPath, bpfObjPath string) (*App, error) {
+func New(policyPath, intentPath, bpfObjPath string) (*App, error) {
 	policies, err := policy.LoadPolicies(policyPath)
 	if err != nil {
 		return nil, err
 	}
 
 	log.Printf("Loaded %d policies from %s", len(policies.Policies), policyPath)
+
+	intents, err := intent.Load(intentPath)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Loaded %d intents from %s", len(intents.Intents), intentPath)
 
 	objs, rd, err := bpf.LoadObjects(bpfObjPath)
 	if err != nil {
@@ -37,7 +45,7 @@ func New(policyPath, bpfObjPath string) (*App, error) {
 	return &App{
 		objs:     objs,
 		reader:   rd,
-		analyzer: analyzer.New(policies),
+		analyzer: analyzer.New(policies, intents),
 	}, nil
 }
 
