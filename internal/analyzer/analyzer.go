@@ -67,21 +67,26 @@ func (a *Analyzer) handleDecision(e *event.Event, d verdict.Decision) {
 		severity = severityFor(d.Final)
 	}
 
-	logMsg := fmt.Sprintf("[%s] [%s] Verdict=%s Confidence=%.2f Type=%s PID=%d PPID=%d UID=%d Comm=%s Arg1=%s Arg2=%s Cgroup=%d Policy=%s Intent=%s Context=%s Reason=%s",
+	// ── 3-way cross-validation 통합 로그 ──
+	// Policy, Intent, Context 각 축의 판정과 최종 Fusion 결과를 모두 표시
+	intentInfo := string(d.Intent.Verdict)
+	if d.Intent.MatchedIntent != "" {
+		intentInfo = fmt.Sprintf("%s(%s)", d.Intent.Verdict, d.Intent.MatchedIntent)
+	}
+
+	logMsg := fmt.Sprintf("[%s] [%s] Verdict=%s Type=%s PID=%d PPID=%d UID=%d Comm=%s Arg1=%s Cgroup=%d | Policy=%s Intent=%s Context=%s | Reason=%s",
 		timestamp.Format("2006-01-02 15:04:05"),
 		severity,
 		d.Final,
-		d.Confidence,
 		e.Type.String(),
 		e.Pid,
 		e.Ppid,
 		e.Uid,
 		e.Comm,
 		e.Arg1,
-		e.Arg2,
 		e.CgroupID,
 		d.Policy.Verdict,
-		d.Intent.Verdict,
+		intentInfo,
 		d.Context.Verdict,
 		d.Reason,
 	)
@@ -91,13 +96,15 @@ func (a *Analyzer) handleDecision(e *event.Event, d verdict.Decision) {
 		log.Println(logMsg)
 	case verdict.FinalAlert:
 		log.Println(logMsg)
-		fmt.Printf("ALERT: %s (PID=%d, Comm=%s, Arg=%s)\n", d.Reason, e.Pid, e.Comm, e.Arg1)
+		fmt.Printf("🚨 ALERT: %s (PID=%d, Comm=%s, Arg=%s)\n", d.Reason, e.Pid, e.Comm, e.Arg1)
 	case verdict.FinalDeny:
 		log.Println(logMsg)
-		fmt.Printf("DENY: %s (PID=%d, Comm=%s, Arg=%s)\n", d.Reason, e.Pid, e.Comm, e.Arg1)
+		fmt.Printf("🛑 DENY: Policy=%s Intent=%s Context=%s → %s (PID=%d, Comm=%s, Arg=%s)\n",
+			d.Policy.Verdict, intentInfo, d.Context.Verdict, d.Reason, e.Pid, e.Comm, e.Arg1)
 	case verdict.FinalKill:
 		log.Println(logMsg)
-		fmt.Printf("KILL: %s (PID=%d, Comm=%s, Arg=%s)\n", d.Reason, e.Pid, e.Comm, e.Arg1)
+		fmt.Printf("💀 KILL: Policy=%s Intent=%s Context=%s → %s (PID=%d, Comm=%s, Arg=%s)\n",
+			d.Policy.Verdict, intentInfo, d.Context.Verdict, d.Reason, e.Pid, e.Comm, e.Arg1)
 		// 지금 버전은 tracepoint 기반이라 커널 안에서 syscall을 바로 막지는 못한다.
 		// 대신 아주 위험하다고 판단한 프로세스는 userspace에서 kill한다.
 		if err := enforcer.Kill(e.Pid); err != nil {
