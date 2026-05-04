@@ -54,10 +54,16 @@ func Decide(policy verdict.PolicyResult, intent verdict.IntentResult, context ve
 			decision.Reason = "no intent matched and runtime context is anomalous"
 			return decision
 		}
-		if policy.Verdict == verdict.PolicySuspicious || context.Verdict == verdict.ContextSuspicious {
+		if policy.Verdict == verdict.PolicySuspicious {
 			decision.Final = verdict.FinalAlert
 			decision.Confidence = 0.6
-			decision.Reason = firstNonEmpty(policy.Reason, context.Reason, "suspicious event without matching intent")
+			decision.Reason = firstNonEmpty(policy.Reason, "suspicious policy match without matching intent")
+			return decision
+		}
+		if context.Verdict == verdict.ContextSuspicious {
+			decision.Final = verdict.FinalAllow
+			decision.Confidence = 0.4
+			decision.Reason = "weak context signal without matching intent"
 			return decision
 		}
 		decision.Final = verdict.FinalAllow

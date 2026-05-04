@@ -20,7 +20,7 @@ type App struct {
 	analyzer *analyzer.Analyzer
 }
 
-func New(policyPath, intentPath, bpfObjPath string) (*App, error) {
+func New(policyPath, intentPath, bpfObjPath, scopeMode string) (*App, error) {
 	policies, err := policy.LoadPolicies(policyPath)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func New(policyPath, intentPath, bpfObjPath string) (*App, error) {
 	return &App{
 		objs:     objs,
 		reader:   rd,
-		analyzer: analyzer.New(policies, intents),
+		analyzer: analyzer.New(policies, intents, scopeMode),
 	}, nil
 }
 

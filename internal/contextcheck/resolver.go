@@ -19,8 +19,8 @@ func New() *Resolver {
 }
 
 func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
-	if burst := r.recordAndCheckBurst(e); burst != nil {
-		return *burst
+	if e.Type == event.EventOpen && isBenignOpenPath(e.Arg1) {
+		return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "benign runtime file access", Score: 0.0}
 	}
 
 	switch e.Type {
@@ -73,6 +73,10 @@ func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
 		}
 	}
 
+	if burst := r.recordAndCheckBurst(e); burst != nil {
+		return *burst
+	}
+
 	return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "runtime context is normal", Score: 0.0}
 }
 
@@ -120,6 +124,38 @@ func isReverseShellTool(path string) bool {
 	default:
 		return false
 	}
+}
+
+func isBenignOpenPath(path string) bool {
+	if path == "" {
+		return true
+	}
+
+	if containsAny(path, []string{
+		"/etc/ld.so.cache",
+		"/usr/lib/locale/",
+		"/usr/share/locale/",
+		"/usr/share/zoneinfo/",
+		"/var/cache/ldconfig/",
+	}) {
+		return true
+	}
+
+	if strings.HasPrefix(path, "/lib/") ||
+		strings.HasPrefix(path, "/lib64/") ||
+		strings.HasPrefix(path, "/usr/lib/") ||
+		strings.HasPrefix(path, "/usr/lib64/") {
+		return true
+	}
+
+	if strings.HasPrefix(path, "/proc/") && strings.HasSuffix(path, "/stat") {
+		return true
+	}
+	if strings.HasPrefix(path, "/proc/") && strings.HasSuffix(path, "/cmdline") {
+		return true
+	}
+
+	return false
 }
 
 func containsAny(value string, patterns []string) bool {

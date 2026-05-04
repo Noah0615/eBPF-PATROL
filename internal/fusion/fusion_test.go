@@ -41,3 +41,15 @@ func TestDecideAllAxesAllow(t *testing.T) {
 		t.Fatalf("Final = %s, want %s", got.Final, verdict.FinalAllow)
 	}
 }
+
+func TestDecideUnknownIntentSuspiciousContextAllows(t *testing.T) {
+	got := Decide(
+		verdict.PolicyResult{Verdict: verdict.PolicyAllow},
+		verdict.IntentResult{Verdict: verdict.IntentUnknown},
+		verdict.ContextResult{Verdict: verdict.ContextSuspicious},
+	)
+
+	if got.Final != verdict.FinalAllow {
+		t.Fatalf("Final = %s, want %s", got.Final, verdict.FinalAllow)
+	}
+}

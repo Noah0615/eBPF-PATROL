@@ -21,9 +21,10 @@ func main() {
 	policyPath := flag.String("policy", "configs/policies.yaml", "path to policy YAML")
 	intentPath := flag.String("intent", "configs/intents.yaml", "path to intent YAML")
 	bpfObjPath := flag.String("bpf", "gen/patrol_bpfel.o", "path to compiled eBPF object")
+	scopeMode := flag.String("scope", "containers", "analysis scope: containers or all")
 	flag.Parse()
 
-	application, err := app.New(*policyPath, *intentPath, *bpfObjPath)
+	application, err := app.New(*policyPath, *intentPath, *bpfObjPath, *scopeMode)
 	if err != nil {
 		log.Fatalf("Failed to initialize: %v", err)
 	}

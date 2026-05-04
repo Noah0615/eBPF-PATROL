@@ -11,6 +11,7 @@ import (
 	"ebpf-patrol/internal/fusion"
 	"ebpf-patrol/internal/intent"
 	"ebpf-patrol/internal/policy"
+	"ebpf-patrol/internal/scope"
 	"ebpf-patrol/internal/verdict"
 )
 
@@ -18,19 +19,25 @@ type Analyzer struct {
 	policies *policy.PolicySet
 	intents  *intent.IntentSet
 	context  *contextcheck.Resolver
+	scope    *scope.Filter
 	stats    map[string]int
 }
 
-func New(policies *policy.PolicySet, intents *intent.IntentSet) *Analyzer {
+func New(policies *policy.PolicySet, intents *intent.IntentSet, scopeMode string) *Analyzer {
 	return &Analyzer{
 		policies: policies,
 		intents:  intents,
 		context:  contextcheck.New(),
+		scope:    scope.New(scopeMode),
 		stats:    make(map[string]int),
 	}
 }
 
 func (a *Analyzer) Analyze(e *event.Event) {
+	if !a.scope.ShouldAnalyze(e) {
+		return
+	}
+
 	policyResult := a.policies.Evaluate(e)
 	intentResult := a.intents.Evaluate(e)
 	contextResult := a.context.Evaluate(e)
@@ -101,7 +108,7 @@ func (a *Analyzer) PrintStats() {
 }
 
 func shouldLog(d verdict.Decision) bool {
-	return d.Final != verdict.FinalAllow || d.Policy.MatchedRule != "" || d.Intent.MatchedIntent != ""
+	return d.Final != verdict.FinalAllow || d.Policy.MatchedRule != ""
 }
 
 func severityFor(final verdict.FinalVerdict) string {
