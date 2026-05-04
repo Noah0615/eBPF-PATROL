@@ -1,5 +1,8 @@
 intents:
   - name: web-server-intent
+    selector:
+      matchLabels:
+        app: nginx
     match:
       comm_contains:
         - nginx
@@ -23,6 +26,9 @@ intents:
           - /tmp
 
   - name: debug-pod-intent
+    selector:
+      matchLabels:
+        role: debug
     match:
       comm_contains:
         - sh
@@ -35,6 +41,10 @@ intents:
       allowDockerSock: false
 
   - name: privileged-diagnostic-intent
+    selector:
+      matchLabels:
+        role: diagnostic
+        privileged: "true"
     match:
       comm_contains:
         - strace

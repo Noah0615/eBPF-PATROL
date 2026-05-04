@@ -17,6 +17,15 @@ func (s *IntentSet) Evaluate(e *event.Event) verdict.IntentResult {
 		return verdict.IntentResult{Verdict: verdict.IntentUnknown, Reason: "intent set is not configured"}
 	}
 
+	if materialized, ok := s.LookupMaterialized(e.CgroupID); ok {
+		result := materialized.Intent.evaluate(e)
+		result.MatchedIntent = materialized.Intent.Name
+		if result.Reason == "event matches workload intent" {
+			result.Reason = fmt.Sprintf("event matches Kubernetes intent %s/%s", materialized.Namespace, materialized.PodName)
+		}
+		return result
+	}
+
 	for _, candidate := range s.Intents {
 		if candidate.matches(e) {
 			return candidate.evaluate(e)
@@ -24,6 +33,48 @@ func (s *IntentSet) Evaluate(e *event.Event) verdict.IntentResult {
 	}
 
 	return verdict.IntentResult{Verdict: verdict.IntentUnknown, Reason: "no matching workload intent"}
+}
+
+func (s *IntentSet) LookupMaterialized(cgroupID uint64) (MaterializedIntent, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	materialized, ok := s.Materialized[cgroupID]
+	return materialized, ok
+}
+
+func (s *IntentSet) ReplaceMaterialized(next map[uint64]MaterializedIntent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.Materialized = next
+}
+
+func (s *IntentSet) MatchByLabels(labels map[string]string) (Intent, bool) {
+	if s == nil {
+		return Intent{}, false
+	}
+
+	for _, candidate := range s.Intents {
+		if selectorMatches(candidate.Selector.MatchLabels, labels) {
+			return candidate, true
+		}
+	}
+
+	return Intent{}, false
+}
+
+func selectorMatches(selector map[string]string, labels map[string]string) bool {
+	if len(selector) == 0 {
+		return false
+	}
+
+	for key, want := range selector {
+		if labels[key] != want {
+			return false
+		}
+	}
+	return true
 }
 
 func (i Intent) matches(e *event.Event) bool {

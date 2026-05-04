@@ -20,6 +20,7 @@ func Load(path string) (*IntentSet, error) {
 	if err := yaml.Unmarshal(data, &intents); err != nil {
 		return nil, err
 	}
+	intents.Materialized = make(map[uint64]MaterializedIntent)
 
 	return &intents, nil
 }

@@ -49,3 +49,26 @@ func TestEvaluateAllowsDiagnosticPtrace(t *testing.T) {
 		t.Fatalf("Verdict = %s, want %s", got.Verdict, verdict.IntentAllow)
 	}
 }
+
+func TestMatchByLabels(t *testing.T) {
+	intents := &IntentSet{Intents: []Intent{
+		{
+			Name: "web",
+			Selector: LabelSelector{MatchLabels: map[string]string{
+				"app":  "nginx",
+				"tier": "frontend",
+			}},
+		},
+	}}
+
+	got, ok := intents.MatchByLabels(map[string]string{
+		"app":  "nginx",
+		"tier": "frontend",
+	})
+	if !ok {
+		t.Fatal("MatchByLabels did not match")
+	}
+	if got.Name != "web" {
+		t.Fatalf("Name = %s, want web", got.Name)
+	}
+}
