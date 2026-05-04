@@ -11,18 +11,18 @@ import (
 )
 
 type Resolver struct {
-	events map[string][]time.Time
+	events      map[string][]time.Time
+	burstAlerts map[string]time.Time
 }
 
 func New() *Resolver {
-	return &Resolver{events: make(map[string][]time.Time)}
+	return &Resolver{
+		events:      make(map[string][]time.Time),
+		burstAlerts: make(map[string]time.Time),
+	}
 }
 
 func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
-	if e.Type == event.EventOpen && isBenignOpenPath(e.Arg1) {
-		return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "benign runtime file access", Score: 0.0}
-	}
-
 	switch e.Type {
 	case event.EventExec:
 		if isShell(e.Arg1) && !isShell(e.Comm) {
@@ -40,6 +40,16 @@ func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
 			}
 		}
 	case event.EventOpen:
+		if isSensitiveWritePath(e.Arg1) && isWriteOpen(e.Flags) {
+			return verdict.ContextResult{
+				Verdict: verdict.ContextAnomalous,
+				Reason:  fmt.Sprintf("sensitive control file write attempt: %s", e.Arg1),
+				Score:   0.95,
+			}
+		}
+		if isBenignOpenPath(e.Arg1, e.Flags) {
+			return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "benign runtime file access", Score: 0.0}
+		}
 		if containsAny(e.Arg1, []string{"/etc/shadow", "/proc/kcore", "/root/.ssh"}) {
 			return verdict.ContextResult{
 				Verdict: verdict.ContextAnomalous,
@@ -96,6 +106,10 @@ func (r *Resolver) recordAndCheckBurst(e *event.Event) *verdict.ContextResult {
 	r.events[key] = kept
 
 	if len(kept) >= 200 {
+		if last, ok := r.burstAlerts[key]; ok && now.Sub(last) < 30*time.Second {
+			return nil
+		}
+		r.burstAlerts[key] = now
 		return &verdict.ContextResult{
 			Verdict: verdict.ContextSuspicious,
 			Reason:  fmt.Sprintf("event burst detected: %d %s events in 10s", len(kept), e.Type.String()),
@@ -126,7 +140,7 @@ func isReverseShellTool(path string) bool {
 	}
 }
 
-func isBenignOpenPath(path string) bool {
+func isBenignOpenPath(path string, flags uint32) bool {
 	if path == "" {
 		return true
 	}
@@ -138,6 +152,10 @@ func isBenignOpenPath(path string) bool {
 		"/usr/share/zoneinfo/",
 		"/var/cache/ldconfig/",
 	}) {
+		return true
+	}
+
+	if strings.HasPrefix(path, "/sys/fs/cgroup/") && !isWriteOpen(flags) {
 		return true
 	}
 
@@ -156,6 +174,25 @@ func isBenignOpenPath(path string) bool {
 	}
 
 	return false
+}
+
+func isSensitiveWritePath(path string) bool {
+	return containsAny(path, []string{
+		"/sys/fs/cgroup/release_agent",
+		"/sys/fs/cgroup/notify_on_release",
+		"/proc/sys/kernel/",
+		"/proc/sys/vm/",
+		"/proc/sys/net/",
+		"/proc/sysrq-trigger",
+	})
+}
+
+func isWriteOpen(flags uint32) bool {
+	const (
+		oWRONLY = 1
+		oRDWR   = 2
+	)
+	return flags&oWRONLY != 0 || flags&oRDWR != 0
 }
 
 func containsAny(value string, patterns []string) bool {

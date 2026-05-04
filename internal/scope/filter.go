@@ -33,6 +33,10 @@ func (f *Filter) ShouldAnalyze(e *event.Event) bool {
 		return true
 	}
 
+	if isRuntimeInfrastructure(e.Comm) {
+		return false
+	}
+
 	if allowed, ok := f.cache[e.CgroupID]; ok {
 		return allowed
 	}
@@ -42,6 +46,15 @@ func (f *Filter) ShouldAnalyze(e *event.Event) bool {
 		f.cache[e.CgroupID] = allowed
 	}
 	return allowed
+}
+
+func isRuntimeInfrastructure(comm string) bool {
+	switch comm {
+	case "containerd", "containerd-shim", "kubelet", "dockerd", "cri-o", "crio", "conmon", "runc":
+		return true
+	default:
+		return false
+	}
 }
 
 func processID(e *event.Event) uint32 {
