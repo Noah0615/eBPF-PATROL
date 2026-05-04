@@ -12,6 +12,67 @@ struct {
     __uint(max_entries, 1 << 24);  // 16MB
 } events SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 65536);
+    __type(key, __u64);
+    __type(value, struct intent_flags);
+} intent_flags SEC(".maps");
+
+static __always_inline int str_eq(const char *s, const char *lit, int max)
+{
+    int i;
+
+    for (i = 0; i < max; i++) {
+        if (s[i] != lit[i])
+            return 0;
+        if (lit[i] == '\0')
+            return 1;
+    }
+    return 0;
+}
+
+static __always_inline int str_contains(const char *s, const char *needle, int max)
+{
+    int i;
+    int j;
+
+    for (i = 0; i < max; i++) {
+        if (s[i] == '\0')
+            return 0;
+
+        for (j = 0; j < 32; j++) {
+            if (needle[j] == '\0')
+                return 1;
+            if (i + j >= max || s[i + j] == '\0')
+                return 0;
+            if (s[i + j] != needle[j])
+                break;
+        }
+    }
+    return 0;
+}
+
+static __always_inline int is_shell_path(const char *path)
+{
+    return str_contains(path, "/bin/sh", ARG_LEN) ||
+           str_contains(path, "/bin/bash", ARG_LEN) ||
+           str_contains(path, "/usr/bin/sh", ARG_LEN) ||
+           str_contains(path, "/usr/bin/bash", ARG_LEN);
+}
+
+static __always_inline int is_docker_sock_path(const char *path)
+{
+    return str_contains(path, "/var/run/docker.sock", ARG_LEN) ||
+           str_contains(path, "/run/docker.sock", ARG_LEN);
+}
+
+static __always_inline int is_hard_deny_path(const char *path)
+{
+    return str_eq(path, "/etc/shadow", ARG_LEN) ||
+           str_contains(path, "/proc/kcore", ARG_LEN);
+}
+
 static __always_inline void fill_common(struct event *e)
 {
     /* 모든 이벤트에 공통으로 들어가는 기본 정보를 채운다.
@@ -31,6 +92,88 @@ static __always_inline void fill_common(struct event *e)
     
     BPF_CORE_READ_INTO(&e->ppid, task, real_parent, tgid);
     bpf_get_current_comm(&e->comm, sizeof(e->comm));
+}
+
+static __always_inline void emit_lsm_event(__u32 type, const char *arg1, __u32 flags)
+{
+    struct event *e;
+
+    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e)
+        return;
+
+    __builtin_memset(e, 0, sizeof(*e));
+    e->type = type;
+    e->flags = flags;
+    fill_common(e);
+    if (arg1)
+        __builtin_memcpy(&e->arg1, arg1, sizeof(e->arg1));
+    bpf_ringbuf_submit(e, 0);
+}
+
+SEC("lsm/bprm_check_security")
+int BPF_PROG(lsm_exec, struct linux_binprm *bprm, int ret)
+{
+    const char *filename;
+    char path[ARG_LEN];
+    __u64 cgroup_id;
+    struct intent_flags *flags;
+
+    if (ret != 0)
+        return ret;
+
+    filename = BPF_CORE_READ(bprm, filename);
+    if (!filename)
+        return 0;
+
+    __builtin_memset(path, 0, sizeof(path));
+    bpf_probe_read_kernel_str(path, sizeof(path), filename);
+
+    cgroup_id = bpf_get_current_cgroup_id();
+    flags = bpf_map_lookup_elem(&intent_flags, &cgroup_id);
+    if (!flags)
+        return 0;
+
+    if (!flags->allow_shell && is_shell_path(path)) {
+        emit_lsm_event(EVENT_EXEC, path, 1);
+        return -1;
+    }
+
+    return 0;
+}
+
+SEC("lsm/file_open")
+int BPF_PROG(lsm_file_open, struct file *file, int ret)
+{
+    struct path f_path;
+    char path[ARG_LEN];
+    __u64 cgroup_id;
+    struct intent_flags *flags;
+
+    if (ret != 0)
+        return ret;
+
+    __builtin_memset(path, 0, sizeof(path));
+    BPF_CORE_READ_INTO(&f_path, file, f_path);
+    if (bpf_d_path(&f_path, path, sizeof(path)) < 0)
+        return 0;
+
+    if (is_hard_deny_path(path)) {
+        emit_lsm_event(EVENT_OPEN, path, 1);
+        return -1;
+    }
+
+    cgroup_id = bpf_get_current_cgroup_id();
+    flags = bpf_map_lookup_elem(&intent_flags, &cgroup_id);
+    if (!flags)
+        return 0;
+
+    if (!flags->allow_docker_sock && is_docker_sock_path(path)) {
+        emit_lsm_event(EVENT_OPEN, path, 1);
+        return -1;
+    }
+
+    return 0;
 }
 
 SEC("tracepoint/syscalls/sys_enter_execve")

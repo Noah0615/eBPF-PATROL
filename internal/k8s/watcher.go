@@ -12,18 +12,24 @@ import (
 type Watcher struct {
 	source   PodSource
 	intents  *intent.IntentSet
+	updater  IntentFlagUpdater
 	interval time.Duration
 	nodeName string
 	root     string
 }
 
-func NewWatcher(source PodSource, intents *intent.IntentSet, interval time.Duration, nodeName string) *Watcher {
+type IntentFlagUpdater interface {
+	UpdateIntentFlags(map[uint64]intent.MaterializedIntent) error
+}
+
+func NewWatcher(source PodSource, intents *intent.IntentSet, updater IntentFlagUpdater, interval time.Duration, nodeName string) *Watcher {
 	if interval <= 0 {
 		interval = 10 * time.Second
 	}
 	return &Watcher{
 		source:   source,
 		intents:  intents,
+		updater:  updater,
 		interval: interval,
 		nodeName: nodeName,
 		root:     "/sys/fs/cgroup",
@@ -107,7 +113,12 @@ func (w *Watcher) sync(ctx context.Context) {
 	}
 
 	w.intents.ReplaceMaterialized(next)
-	log.Printf("k8s intent sync: pods=%d materialized_cgroups=%d", len(byUID), len(next))
+	if w.updater != nil {
+		if err := w.updater.UpdateIntentFlags(next); err != nil {
+			log.Printf("k8s intent map update failed: %v", err)
+		}
+	}
+	log.Printf("k8s intent sync: pods=%d materialized_cgroups=%d bpf_map=updated", len(byUID), len(next))
 }
 
 func (w *Watcher) shouldUsePod(pod Pod) bool {

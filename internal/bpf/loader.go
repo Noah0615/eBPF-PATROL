@@ -16,7 +16,10 @@ type Objects struct {
 	TraceMount   *ebpf.Program `ebpf:"trace_mount"`
 	TraceSocket  *ebpf.Program `ebpf:"trace_socket"`
 	TraceUnshare *ebpf.Program `ebpf:"trace_unshare"`
+	LSMExec      *ebpf.Program `ebpf:"lsm_exec"`
+	LSMFileOpen  *ebpf.Program `ebpf:"lsm_file_open"`
 	Events       *ebpf.Map     `ebpf:"events"`
+	IntentFlags  *ebpf.Map     `ebpf:"intent_flags"`
 
 	links []link.Link
 }
@@ -48,8 +51,17 @@ func (o *Objects) Close() {
 	if o.TraceUnshare != nil {
 		_ = o.TraceUnshare.Close()
 	}
+	if o.LSMExec != nil {
+		_ = o.LSMExec.Close()
+	}
+	if o.LSMFileOpen != nil {
+		_ = o.LSMFileOpen.Close()
+	}
 	if o.Events != nil {
 		_ = o.Events.Close()
+	}
+	if o.IntentFlags != nil {
+		_ = o.IntentFlags.Close()
 	}
 }
 
@@ -91,6 +103,23 @@ func LoadObjects(objPath string) (*Objects, *ringbuf.Reader, error) {
 		objs.links = append(objs.links, l)
 	}
 
+	lsmAttachments := []struct {
+		name    string
+		program *ebpf.Program
+	}{
+		{"lsm_exec", objs.LSMExec},
+		{"lsm_file_open", objs.LSMFileOpen},
+	}
+
+	for _, att := range lsmAttachments {
+		l, err := link.AttachLSM(link.LSMOptions{Program: att.program})
+		if err != nil {
+			objs.Close()
+			return nil, nil, fmt.Errorf("attach %s: %w", att.name, err)
+		}
+		objs.links = append(objs.links, l)
+	}
+
 	rd, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
 		objs.Close()
@@ -109,6 +138,8 @@ func validateSpec(spec *ebpf.CollectionSpec) error {
 		"trace_mount",
 		"trace_socket",
 		"trace_unshare",
+		"lsm_exec",
+		"lsm_file_open",
 	}
 	for _, name := range requiredPrograms {
 		if _, ok := spec.Programs[name]; !ok {
@@ -117,6 +148,9 @@ func validateSpec(spec *ebpf.CollectionSpec) error {
 	}
 	if _, ok := spec.Maps["events"]; !ok {
 		return fmt.Errorf("BPF object is missing map %q; rebuild it with `make clean && make bpf`", "events")
+	}
+	if _, ok := spec.Maps["intent_flags"]; !ok {
+		return fmt.Errorf("BPF object is missing map %q; rebuild it with `make clean && make bpf`", "intent_flags")
 	}
 	return nil
 }

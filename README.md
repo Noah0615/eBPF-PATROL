@@ -46,7 +46,7 @@ The agent can automatically map Kubernetes pod labels to local cgroup IDs.
 It periodically reads pods through `kubectl`, matches each pod against
 `selector.matchLabels` in `configs/intents.yaml`, scans `/sys/fs/cgroup` for
 the pod UID, and injects the matched intent into the in-memory cgroup intent
-table.
+table and the `intent_flags` eBPF map.
 
 ```bash
 sudo -E ./bin/patrold \
@@ -62,6 +62,38 @@ If you only want pods scheduled on one node:
 ```bash
 sudo -E ./bin/patrold --scope containers --k8s-intents --k8s-node <node-name>
 ```
+
+## Kernel fast path and LSM deny
+
+When Kubernetes intent materialization is enabled, the agent writes compact
+intent flags into the eBPF map:
+
+```text
+cgroup_id -> {
+  allow_shell,
+  allow_namespace_ops,
+  allow_privilege_ops,
+  allow_docker_sock
+}
+```
+
+The BPF LSM hooks use this map for immediate kernel decisions:
+
+- `lsm/bprm_check_security`: denies shell execution when `allow_shell=false`
+- `lsm/file_open`: denies docker.sock when `allow_docker_sock=false`
+- `lsm/file_open`: hard-denies `/etc/shadow` and `/proc/kcore`
+
+This is the first kernel-side fast path. The userspace 3-way engine still runs
+for explainability and telemetry.
+
+BPF LSM requires kernel support. Check the lab kernel with:
+
+```bash
+cat /sys/kernel/security/lsm
+```
+
+The output should include `bpf`. If LSM attach fails, enable BPF LSM support in
+the kernel or boot with an LSM list that includes `bpf`.
 
 If startup fails with a missing BPF program such as `trace_unshare`, the Go
 binary and `gen/patrol_bpfel.o` are out of sync. Rebuild the BPF object:

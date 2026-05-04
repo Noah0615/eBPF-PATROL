@@ -32,4 +32,11 @@ struct event {
     __u32 flags;
 };
 
+struct intent_flags {
+    __u32 allow_shell;
+    __u32 allow_namespace_ops;
+    __u32 allow_privilege_ops;
+    __u32 allow_docker_sock;
+};
+
 #endif /* __COMMON_H */

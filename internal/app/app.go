@@ -66,7 +66,8 @@ func New(opts Options) (*App, error) {
 			return nil, errors.New("only k8s mode \"kubectl\" is implemented")
 		}
 		source := k8s.NewKubectlSource(opts.KubectlBinary)
-		watcher = k8s.NewWatcher(source, intents, opts.K8sSyncInterval, opts.K8sNodeName)
+		updater := bpf.NewIntentFlagUpdater(objs.IntentFlags)
+		watcher = k8s.NewWatcher(source, intents, updater, opts.K8sSyncInterval, opts.K8sNodeName)
 		log.Printf("Kubernetes intent materializer enabled: mode=%s interval=%s", opts.K8sMode, opts.K8sSyncInterval)
 	}
 
