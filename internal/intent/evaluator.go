@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"ebpf-patrol/internal/event"
 	"ebpf-patrol/internal/verdict"
@@ -18,8 +19,49 @@ func (s *IntentSet) Evaluate(e *event.Event) verdict.IntentResult {
 	}
 
 	if materialized, ok := s.LookupMaterialized(e.CgroupID); ok {
+		// ── 오탐 감소: Grace Period 확인 ──
+		// 컨테이너 시작 직후에는 라이브러리 로딩, 설정 파일 읽기 등으로
+		// 정상 노이즈가 발생한다. grace period 동안은 violation을 차단하지 않고
+		// UNKNOWN으로 완화하여 false positive를 방지한다.
+		graceSec := materialized.Intent.Meta.GracePeriodSeconds
+		if graceSec > 0 && materialized.MaterializedAt > 0 {
+			elapsed := time.Now().Unix() - materialized.MaterializedAt
+			if elapsed < int64(graceSec) {
+				return verdict.IntentResult{
+					Verdict:       verdict.IntentUnknown,
+					Reason:        fmt.Sprintf("grace period active (%ds/%ds elapsed)", elapsed, graceSec),
+					MatchedIntent: materialized.Intent.Name,
+				}
+			}
+		}
+
+		// ── 오탐 감소: TTL 만료 확인 ──
+		ttl := materialized.Intent.Meta.TTLSeconds
+		if ttl > 0 && materialized.MaterializedAt > 0 {
+			elapsed := time.Now().Unix() - materialized.MaterializedAt
+			if elapsed > int64(ttl) {
+				return verdict.IntentResult{
+					Verdict:       verdict.IntentDeny,
+					Reason:        fmt.Sprintf("intent %q expired (TTL %ds exceeded)", materialized.Intent.Name, ttl),
+					MatchedIntent: materialized.Intent.Name,
+				}
+			}
+		}
+
 		result := materialized.Intent.evaluate(e)
 		result.MatchedIntent = materialized.Intent.Name
+
+		// ── 오탐 감소: Enforcement Mode 확인 ──
+		// audit 모드에서는 violation을 탐지하되 DENY 대신 ALLOW로 완화한다.
+		// 이를 통해 새 intent를 안전하게 테스트할 수 있다.
+		if result.Verdict == verdict.IntentDeny {
+			mode := materialized.Intent.Meta.EnforcementMode
+			if mode == "audit" || mode == "learn" {
+				result.Verdict = verdict.IntentAllow
+				result.Reason = fmt.Sprintf("[%s mode] %s", mode, result.Reason)
+			}
+		}
+
 		if result.Reason == "event matches workload intent" {
 			result.Reason = fmt.Sprintf("event matches Kubernetes intent %s/%s", materialized.Namespace, materialized.PodName)
 		}
@@ -55,12 +97,26 @@ func (s *IntentSet) MatchByLabels(labels map[string]string) (Intent, bool) {
 		return Intent{}, false
 	}
 
-	for _, candidate := range s.Intents {
+	// 오탐 감소: 여러 intent가 같은 pod에 매칭될 수 있다.
+	// priority가 가장 높은 것을 선택하여 모호한 판정을 방지한다.
+	var best *Intent
+	bestPriority := -1
+
+	for i := range s.Intents {
+		candidate := &s.Intents[i]
 		if selectorMatches(candidate.Selector.MatchLabels, labels) {
-			return candidate, true
+			if candidate.Meta.Priority > bestPriority {
+				best = candidate
+				bestPriority = candidate.Meta.Priority
+			} else if best == nil {
+				best = candidate
+			}
 		}
 	}
 
+	if best != nil {
+		return *best, true
+	}
 	return Intent{}, false
 }
 

@@ -1,0 +1,44 @@
+# patrold agent RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patrol-agent
+  namespace: patrol-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: patrol-agent
+rules:
+  # WorkloadIntent CRD 읽기/상태 업데이트
+  - apiGroups: ["patrol.ebpf.io"]
+    resources: ["workloadintents"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["patrol.ebpf.io"]
+    resources: ["workloadintents/status"]
+    verbs: ["get", "update", "patch"]
+  # Pod 정보 읽기 (cgroup 매핑용)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Namespace label 읽기 (namespaceSelector 용)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Event 생성 (감사 로그)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: patrol-agent
+subjects:
+  - kind: ServiceAccount
+    name: patrol-agent
+    namespace: patrol-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: patrol-agent

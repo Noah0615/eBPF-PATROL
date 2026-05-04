@@ -1,0 +1,29 @@
+# nginx 같은 웹서버 워크로드: shell/namespace/privilege 모두 차단
+apiVersion: patrol.ebpf.io/v1alpha1
+kind: WorkloadIntent
+metadata:
+  name: web-server
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+      tier: frontend
+  allowShell: false
+  allowNamespaceOps: false
+  allowPrivilegeOps: false
+  allowDockerSock: false
+  expectedProcesses:
+    - nginx
+    - nginx-worker
+  allowedPaths:
+    read:
+      - /usr/share/nginx
+      - /etc/nginx
+    write:
+      - /var/log/nginx
+      - /tmp
+  priority: 100
+  enforcementMode: enforce
+  gracePeriodSeconds: 15
+  auditLevel: standard

@@ -1,0 +1,85 @@
+# patrold DaemonSet — 각 노드에서 eBPF 프로그램을 로드하고 감시
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: patrol-system
+  labels:
+    patrol.ebpf.io/enforce: "false"   # 자기 자신은 webhook 대상에서 제외
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: patrol-agent
+  namespace: patrol-system
+  labels:
+    app: patrol-agent
+spec:
+  selector:
+    matchLabels:
+      app: patrol-agent
+  template:
+    metadata:
+      labels:
+        app: patrol-agent
+    spec:
+      serviceAccountName: patrol-agent
+      hostPID: true        # 호스트 PID namespace 접근 (프로세스 kill 용)
+      hostNetwork: false
+      tolerations:
+        - operator: Exists   # 모든 노드에 배포
+      containers:
+        - name: patrold
+          image: ghcr.io/ebpf-patrol/patrold:latest
+          args:
+            - --scope=containers
+            - --k8s-intents
+            - --k8s-mode=crd
+            - --k8s-sync-interval=5s
+            - --webhook-enable
+            - --webhook-port=8443
+            - --webhook-cert-dir=/certs
+          securityContext:
+            privileged: true   # eBPF 로드에 필요
+          volumeMounts:
+            - name: sys-fs-cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: sys-kernel-debug
+              mountPath: /sys/kernel/debug
+              readOnly: true
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: webhook-certs
+              mountPath: /certs
+              readOnly: true
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: webhook
+              containerPort: 8443
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: sys-fs-cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+        - name: sys-kernel-debug
+          hostPath:
+            path: /sys/kernel/debug
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: webhook-certs
+          secret:
+            secretName: patrol-webhook-certs
+            optional: true

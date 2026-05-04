@@ -1,0 +1,19 @@
+# debug pod: shell 허용, 1시간 후 자동 만료
+apiVersion: patrol.ebpf.io/v1alpha1
+kind: WorkloadIntent
+metadata:
+  name: debug-pod
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      role: debug
+  allowShell: true
+  allowNamespaceOps: false
+  allowPrivilegeOps: false
+  allowDockerSock: false
+  priority: 200
+  enforcementMode: audit
+  gracePeriodSeconds: 60
+  ttlSeconds: 3600
+  auditLevel: verbose

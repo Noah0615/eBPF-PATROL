@@ -1,0 +1,21 @@
+# privileged diagnostic pod: 모든 권한 허용, 사전 승인 필수
+apiVersion: patrol.ebpf.io/v1alpha1
+kind: WorkloadIntent
+metadata:
+  name: privileged-diagnostic
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      role: diagnostic
+      privileged: "true"
+  allowShell: true
+  allowNamespaceOps: true
+  allowPrivilegeOps: true
+  allowDockerSock: true
+  priority: 300
+  enforcementMode: enforce
+  gracePeriodSeconds: 10
+  ttlSeconds: 7200
+  requireApproval: true
+  auditLevel: verbose

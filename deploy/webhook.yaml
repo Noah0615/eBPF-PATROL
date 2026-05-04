@@ -1,0 +1,55 @@
+# ValidatingWebhookConfiguration for pod admission
+# Pod 생성 시 WorkloadIntent 매칭을 사전 검증한다
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: patrol-pod-validator
+  annotations:
+    patrol.ebpf.io/description: >
+      Validates that newly created pods have matching WorkloadIntents.
+      Adds intent annotations and warns when no intent covers a pod.
+webhooks:
+  - name: pod-intent.patrol.ebpf.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: 5
+    failurePolicy: Ignore   # Webhook 장애 시 pod 생성을 막지 않음 (안전 우선)
+    matchPolicy: Equivalent
+    clientConfig:
+      service:
+        name: patrol-webhook
+        namespace: patrol-system
+        path: /validate-pod
+        port: 8443
+      # caBundle은 cert-manager 또는 gen-webhook-cert.sh로 주입
+      # caBundle: <BASE64_CA_CERT>
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+        scope: Namespaced
+    namespaceSelector:
+      matchExpressions:
+        # kube-system 등 시스템 네임스페이스는 제외
+        - key: patrol.ebpf.io/enforce
+          operator: NotIn
+          values: ["false"]
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["kube-system", "kube-public", "kube-node-lease", "patrol-system"]
+---
+# Webhook 서비스
+apiVersion: v1
+kind: Service
+metadata:
+  name: patrol-webhook
+  namespace: patrol-system
+spec:
+  selector:
+    app: patrol-agent
+  ports:
+    - name: webhook
+      port: 8443
+      targetPort: 8443
+      protocol: TCP

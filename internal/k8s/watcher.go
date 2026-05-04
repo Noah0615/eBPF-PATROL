@@ -92,6 +92,7 @@ func (w *Watcher) sync(ctx context.Context) {
 	}
 
 	next := make(map[uint64]intent.MaterializedIntent)
+	now := time.Now().Unix()
 	for uid, matches := range cgroups {
 		info, ok := byUID[uid]
 		if !ok {
@@ -108,6 +109,7 @@ func (w *Watcher) sync(ctx context.Context) {
 				ContainerID:    containerID,
 				CgroupPath:     match.Path,
 				MaterializedBy: "kubernetes",
+				MaterializedAt: now,
 			}
 		}
 	}
