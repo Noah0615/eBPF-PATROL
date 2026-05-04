@@ -55,6 +55,11 @@ LSM은 Linux Security Module의 줄임말이다.
 - `/etc/shadow` open
 - `/proc/kcore` open
 
+주의: `file_open` LSM fast path는 verifier 제약 때문에 전체 경로가 아니라
+파일 이름 basename을 먼저 본다. 그래서 커널 fast path는 `shadow`, `kcore`,
+`docker.sock`처럼 빠른 차단 신호를 처리하고, 전체 경로 설명과 자세한
+분석은 기존 tracepoint/userspace 엔진이 계속 담당한다.
+
 ## 아직 userspace가 맡는 것
 
 - 상세한 3-way decision fusion

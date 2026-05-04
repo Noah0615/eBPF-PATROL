@@ -61,16 +61,15 @@ static __always_inline int is_shell_path(const char *path)
            str_contains(path, "/usr/bin/bash", ARG_LEN);
 }
 
-static __always_inline int is_docker_sock_path(const char *path)
+static __always_inline int is_docker_sock_name(const char *name)
 {
-    return str_contains(path, "/var/run/docker.sock", ARG_LEN) ||
-           str_contains(path, "/run/docker.sock", ARG_LEN);
+    return str_eq(name, "docker.sock", ARG_LEN);
 }
 
-static __always_inline int is_hard_deny_path(const char *path)
+static __always_inline int is_hard_deny_name(const char *name)
 {
-    return str_eq(path, "/etc/shadow", ARG_LEN) ||
-           str_contains(path, "/proc/kcore", ARG_LEN);
+    return str_eq(name, "shadow", ARG_LEN) ||
+           str_eq(name, "kcore", ARG_LEN);
 }
 
 static __always_inline void fill_common(struct event *e)
@@ -145,21 +144,26 @@ int BPF_PROG(lsm_exec, struct linux_binprm *bprm, int ret)
 SEC("lsm/file_open")
 int BPF_PROG(lsm_file_open, struct file *file, int ret)
 {
-    struct path f_path;
-    char path[ARG_LEN];
+    struct dentry *dentry;
+    const unsigned char *name_ptr;
+    char name[ARG_LEN];
     __u64 cgroup_id;
     struct intent_flags *flags;
 
     if (ret != 0)
         return ret;
 
-    __builtin_memset(path, 0, sizeof(path));
-    BPF_CORE_READ_INTO(&f_path, file, f_path);
-    if (bpf_d_path(&f_path, path, sizeof(path)) < 0)
+    __builtin_memset(name, 0, sizeof(name));
+    dentry = BPF_CORE_READ(file, f_path.dentry);
+    if (!dentry)
         return 0;
+    name_ptr = BPF_CORE_READ(dentry, d_name.name);
+    if (!name_ptr)
+        return 0;
+    bpf_probe_read_kernel_str(name, sizeof(name), name_ptr);
 
-    if (is_hard_deny_path(path)) {
-        emit_lsm_event(EVENT_OPEN, path, 1);
+    if (is_hard_deny_name(name)) {
+        emit_lsm_event(EVENT_OPEN, name, 1);
         return -1;
     }
 
@@ -168,8 +172,8 @@ int BPF_PROG(lsm_file_open, struct file *file, int ret)
     if (!flags)
         return 0;
 
-    if (!flags->allow_docker_sock && is_docker_sock_path(path)) {
-        emit_lsm_event(EVENT_OPEN, path, 1);
+    if (!flags->allow_docker_sock && is_docker_sock_name(name)) {
+        emit_lsm_event(EVENT_OPEN, name, 1);
         return -1;
     }
 
