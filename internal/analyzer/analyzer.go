@@ -34,6 +34,10 @@ func New(policies *policy.PolicySet, intents *intent.IntentSet, scopeMode string
 }
 
 func (a *Analyzer) Analyze(e *event.Event) {
+	// Analyzer는 탐지기의 "재판장" 역할을 한다.
+	// 1. 먼저 우리가 볼 대상인지 확인한다. 기본값은 컨테이너 관련 이벤트만 본다.
+	// 2. Policy, Intent, Context 세 명의 심사위원에게 같은 이벤트를 보여준다.
+	// 3. Fusion이 세 의견을 합쳐 최종 결론을 낸다.
 	if !a.scope.ShouldAnalyze(e) {
 		return
 	}
@@ -49,6 +53,8 @@ func (a *Analyzer) Analyze(e *event.Event) {
 }
 
 func (a *Analyzer) handleDecision(e *event.Event, d verdict.Decision) {
+	// 최종 결론이 나오면 사람이 읽을 수 있는 로그로 바꾼다.
+	// DENY/KILL 같은 강한 결론은 화면에도 바로 보여준다.
 	key := string(d.Final)
 	if d.Policy.MatchedRule != "" {
 		key = d.Policy.MatchedRule
@@ -92,6 +98,8 @@ func (a *Analyzer) handleDecision(e *event.Event, d verdict.Decision) {
 	case verdict.FinalKill:
 		log.Println(logMsg)
 		fmt.Printf("KILL: %s (PID=%d, Comm=%s, Arg=%s)\n", d.Reason, e.Pid, e.Comm, e.Arg1)
+		// 지금 버전은 tracepoint 기반이라 커널 안에서 syscall을 바로 막지는 못한다.
+		// 대신 아주 위험하다고 판단한 프로세스는 userspace에서 kill한다.
 		if err := enforcer.Kill(e.Pid); err != nil {
 			log.Printf("kill pid %d failed: %v", e.Pid, err)
 		}
@@ -108,6 +116,8 @@ func (a *Analyzer) PrintStats() {
 }
 
 func shouldLog(d verdict.Decision) bool {
+	// 정상 이벤트는 너무 많아서 전부 찍으면 로그가 폭포처럼 쏟아진다.
+	// 그래서 정책에 걸렸거나, 최종 결론이 ALLOW가 아닐 때만 주로 기록한다.
 	return d.Final != verdict.FinalAllow || d.Policy.MatchedRule != ""
 }
 

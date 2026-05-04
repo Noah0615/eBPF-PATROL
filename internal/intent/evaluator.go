@@ -10,6 +10,9 @@ import (
 )
 
 func (s *IntentSet) Evaluate(e *event.Event) verdict.IntentResult {
+	// Intent는 "이 컨테이너는 원래 이런 일을 해야 한다"는 약속이다.
+	// 예: nginx는 웹서버라서 shell이나 mount가 필요 없고,
+	//     debug pod는 shell 실행이 필요할 수 있다.
 	if s == nil {
 		return verdict.IntentResult{Verdict: verdict.IntentUnknown, Reason: "intent set is not configured"}
 	}
@@ -24,6 +27,9 @@ func (s *IntentSet) Evaluate(e *event.Event) verdict.IntentResult {
 }
 
 func (i Intent) matches(e *event.Event) bool {
+	// 지금 MVP는 cgroup ID 또는 process comm 이름으로 Intent를 찾는다.
+	// 다음 단계에서는 Kubernetes watcher가 pod/container 정보를 보고
+	// cgroup ID에 정확히 Intent를 붙이는 방식으로 발전시킬 수 있다.
 	if len(i.Match.CgroupIDs) > 0 {
 		for _, id := range i.Match.CgroupIDs {
 			if id == e.CgroupID {
@@ -50,6 +56,8 @@ func (i Intent) matches(e *event.Event) bool {
 }
 
 func (i Intent) evaluate(e *event.Event) verdict.IntentResult {
+	// 이벤트가 Intent와 매칭되면, 그 행동이 약속 안에 있는지 확인한다.
+	// 약속 밖 행동이면 Intent DENY를 반환한다.
 	result := verdict.IntentResult{
 		Verdict:       verdict.IntentAllow,
 		Reason:        "event matches workload intent",
@@ -58,6 +66,8 @@ func (i Intent) evaluate(e *event.Event) verdict.IntentResult {
 
 	switch e.Type {
 	case event.EventExec:
+		// shell 실행은 컨테이너 침해 뒤에 자주 보이는 행동이다.
+		// 하지만 debug pod처럼 shell이 필요한 경우도 있어서 Intent로 구분한다.
 		if isShell(e.Arg1) && !i.Spec.AllowShell {
 			result.Verdict = verdict.IntentDeny
 			result.Reason = fmt.Sprintf("%s does not allow shell execution", i.Name)
@@ -69,24 +79,29 @@ func (i Intent) evaluate(e *event.Event) verdict.IntentResult {
 			return result
 		}
 	case event.EventClone, event.EventUnshare:
+		// namespace 조작은 컨테이너 탈출 시나리오에서 중요한 신호다.
 		if hasNamespaceCloneFlag(e.Flags) && !i.Spec.AllowNamespaceOps {
 			result.Verdict = verdict.IntentDeny
 			result.Reason = fmt.Sprintf("%s does not allow namespace operations", i.Name)
 			return result
 		}
 	case event.EventMount:
+		// mount는 파일시스템 경계를 바꾸는 행동이라 일반 앱 컨테이너에는 보통 필요 없다.
 		if !i.Spec.AllowNamespaceOps {
 			result.Verdict = verdict.IntentDeny
 			result.Reason = fmt.Sprintf("%s does not allow mount operations", i.Name)
 			return result
 		}
 	case event.EventPtrace:
+		// ptrace는 다른 프로세스를 들여다보는 기능이다.
+		// 진단 pod에는 필요할 수 있지만, 일반 서비스에는 위험할 수 있다.
 		if !i.Spec.AllowPrivilegeOps {
 			result.Verdict = verdict.IntentDeny
 			result.Reason = fmt.Sprintf("%s does not allow ptrace or privileged operations", i.Name)
 			return result
 		}
 	case event.EventOpen:
+		// docker.sock을 만지면 컨테이너가 호스트 Docker를 조종할 수 있어 매우 위험하다.
 		if isDockerSock(e.Arg1) && !i.Spec.AllowDockerSock {
 			result.Verdict = verdict.IntentDeny
 			result.Reason = fmt.Sprintf("%s does not allow docker socket access", i.Name)
