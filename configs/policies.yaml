@@ -1,21 +1,81 @@
+# configs/policies.yaml
 policies:
-  - name: detect-bash-exec
+  # ============================================================
+  # CRITICAL: Reverse Shell Detection
+  # ============================================================
+  - name: detect-reverse-shell-network
     type: exec
+    description: "Reverse shell with network redirection"
+    severity: CRITICAL
     match:
       file_contains:
         - "/bash"
-    action: log
+        - "/sh"
+    action: log  # 일단 log로 (너무 많으면)
 
-  - name: detect-python-exec
+  - name: detect-netcat-reverse-shell
     type: exec
+    description: "Netcat reverse shell"
+    severity: CRITICAL
     match:
       file_contains:
-        - "python"
-    action: log
+        - "/nc"
+        - "/ncat"
+        - "/netcat"
+    action: alert
 
-  - name: detect-shadow-open
+  - name: detect-python-reverse-shell
+    type: exec
+    description: "Python reverse shell"
+    severity: CRITICAL
+    match:
+      file_contains:
+        - "/python"
+    action: alert
+
+  # ============================================================
+  # CRITICAL: Sensitive File Access
+  # ============================================================
+  - name: detect-shadow-access
     type: open
+    description: "Unauthorized access to /etc/shadow"
+    severity: CRITICAL
     match:
       path_contains:
         - "/etc/shadow"
-    action: log
+    action: alert
+
+  # /etc/passwd는 제외 (정상 동작)
+
+  - name: detect-kcore-access
+    type: open
+    description: "Access to kernel memory"
+    severity: CRITICAL
+    match:
+      path_contains:
+        - "/proc/kcore"
+    action: alert
+
+  # ============================================================
+  # HIGH: Container Escape
+  # ============================================================
+  - name: detect-fsconfig-exploit
+    type: fsconfig
+    description: "CVE-2022-0185 container escape"
+    severity: CRITICAL
+    match: {}
+    action: alert
+
+  - name: detect-mount-syscall
+    type: mount
+    description: "Suspicious mount operation"
+    severity: HIGH
+    match: {}
+    action: alert
+
+  - name: detect-ptrace-abuse
+    type: ptrace
+    description: "Process tracing attempt"
+    severity: HIGH
+    match: {}
+    action: alert

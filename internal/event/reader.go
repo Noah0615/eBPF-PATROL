@@ -1,4 +1,3 @@
-// 커널 -> Go 프로그램
 package event
 
 import (
@@ -10,37 +9,51 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 )
 
-// eBPF에서 읽은 원시 데이터를 ExecEvent 구조체로 변환하는 코드
-type execEventRaw struct {
-	Pid  uint32
-	Tgid uint32
-	Uid  uint32
-	Comm [16]byte
-	File [256]byte
+type rawEvent struct {
+	Type      uint32
+	Pid       uint32
+	Tgid      uint32
+	Ppid      uint32
+	Uid       uint32
+	Gid       uint32
+	CgroupID  uint64
+	Timestamp uint64
+	Comm      [16]byte
+	Arg1      [128]byte
+	Arg2      [128]byte
+	Flags     uint32
 }
 
-// eBPF에서 읽은 원시 데이터를 ExecEvent 구조체로 변환하는 코드
-func ReadExecEvent(rd *ringbuf.Reader) (ExecEvent, error) {
+func ReadEvent(rd *ringbuf.Reader) (*Event, error) {
 	record, err := rd.Read()
 	if err != nil {
-		return ExecEvent{}, err
+		if errors.Is(err, ringbuf.ErrClosed) {
+			return nil, err
+		}
+		return nil, err
 	}
 
-	var raw execEventRaw
+	var raw rawEvent
 	if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &raw); err != nil {
-		return ExecEvent{}, err
+		return nil, err
 	}
 
-	return ExecEvent{
-		Pid:  raw.Pid,
-		Tgid: raw.Tgid,
-		Uid:  raw.Uid,
-		Comm: cString(raw.Comm[:]),
-		File: cString(raw.File[:]),
+	return &Event{
+		Type:      EventType(raw.Type),
+		Pid:       raw.Pid,
+		Tgid:      raw.Tgid,
+		Ppid:      raw.Ppid,
+		Uid:       raw.Uid,
+		Gid:       raw.Gid,
+		CgroupID:  raw.CgroupID,
+		Timestamp: raw.Timestamp,
+		Comm:      cString(raw.Comm[:]),
+		Arg1:      cString(raw.Arg1[:]),
+		Arg2:      cString(raw.Arg2[:]),
+		Flags:     raw.Flags,
 	}, nil
 }
 
-// C 스타일의 null-terminated 문자열을 Go 문자열로 변환하는 함수
 func cString(b []byte) string {
 	idx := bytes.IndexByte(b, 0)
 	if idx == -1 {
@@ -48,6 +61,3 @@ func cString(b []byte) string {
 	}
 	return strings.TrimSpace(string(b[:idx]))
 }
-
-// Reader가 닫혔을 때 반환할 수 있는 오류
-var ErrClosed = errors.New("reader closed")

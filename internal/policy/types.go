@@ -1,18 +1,24 @@
-// 규칙이 어떻게 생겼는지 설계도
 package policy
 
-type Config struct {
+type PolicySet struct {
 	Policies []Policy `yaml:"policies"`
 }
 
 type Policy struct {
-	Name   string    `yaml:"name"`
-	Type   string    `yaml:"type"`
-	Match  MatchSpec `yaml:"match"`
-	Action string    `yaml:"action"`
+	Name        string      `yaml:"name"`
+	Type        string      `yaml:"type"`
+	Match       MatchRule   `yaml:"match"`
+	Action      string      `yaml:"action"`
+	Description string      `yaml:"description"`
+	Severity    string      `yaml:"severity"`
 }
 
-type MatchSpec struct {
+type MatchRule struct {
 	FileContains []string `yaml:"file_contains"`
-	CommEquals   []string `yaml:"comm_equals"`
+	PathContains []string `yaml:"path_contains"`
+	CommEquals   string   `yaml:"comm_equals"`
+	CommContains []string `yaml:"comm_contains"`
+	UidNot       *uint32  `yaml:"uid_not"`
+	UidEquals    *uint32  `yaml:"uid_equals"`
+	FlagsAny     *uint32  `yaml:"flags_any"`
 }

@@ -3,23 +3,47 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
 
 	"ebpf-patrol/internal/app"
 )
 
-// 앱을 만들고 -> 실행하고 -> 중간에 종료 신호 오면 깔끔하게 멈추는 코드
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
-	a, err := app.New()
+	if os.Geteuid() != 0 {
+		log.Fatal("This program must be run as root (sudo)")
+	}
+
+	policyPath := "configs/policies.yaml"
+	bpfObjPath := "gen/patrol_bpfel.o"
+
+	application, err := app.New(policyPath, bpfObjPath)
 	if err != nil {
-		log.Fatalf("new app: %v", err)
+		log.Fatalf("Failed to initialize: %v", err)
+	}
+	defer application.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		log.Println("\nShutting down...")
+		cancel()
+	}()
+
+	log.Println("eBPF-PATROL started. Monitoring syscalls...")
+	log.Println("Press Ctrl+C to stop.")
+
+	if err := application.Run(ctx); err != nil && err != context.Canceled {
+		log.Fatalf("Runtime error: %v", err)
 	}
 
-	if err := a.Run(ctx); err != nil {
-		log.Fatalf("run app: %v", err)
-	}
+	log.Println("eBPF-PATROL stopped.")
 }

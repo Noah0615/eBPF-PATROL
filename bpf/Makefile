@@ -1,20 +1,18 @@
-BPF_CLANG ?= clang
-ARCH := $(shell uname -m)
+CLANG ?= clang
+ARCH := $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/')
 
-ifeq ($(ARCH),x86_64)
-TARGET_ARCH := x86
-else ifeq ($(ARCH),aarch64)
-TARGET_ARCH := arm64
-else
-$(error unsupported arch $(ARCH))
-endif
+INCLUDES := -I.
+CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES)
 
-BPF_CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(TARGET_ARCH)
+OUTPUT := ../gen
 
-all: ../gen/patrol_bpfel.o
+.PHONY: all clean
 
-../gen/patrol_bpfel.o: patrol.bpf.c common.h vmlinux.h
-	$(BPF_CLANG) $(BPF_CFLAGS) -I. -c patrol.bpf.c -o ../gen/patrol_bpfel.o
+all: $(OUTPUT)/patrol_bpfel.o
+
+$(OUTPUT)/patrol_bpfel.o: patrol.bpf.c vmlinux.h common.h
+	@mkdir -p $(OUTPUT)
+	$(CLANG) $(CFLAGS) -c patrol.bpf.c -o $@
 
 clean:
-	rm -f ../gen/*.o
+	rm -f $(OUTPUT)/patrol_bpfel.o

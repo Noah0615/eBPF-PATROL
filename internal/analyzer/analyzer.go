@@ -1,30 +1,72 @@
-// 모든 정책 다 검사함
 package analyzer
 
 import (
+	"fmt"
 	"log"
+	"time"
 
 	"ebpf-patrol/internal/event"
 	"ebpf-patrol/internal/policy"
 )
 
 type Analyzer struct {
-	policies []policy.Policy
+	policies *policy.PolicySet
+	stats    map[string]int
 }
 
-func New(policies []policy.Policy) *Analyzer {
-	return &Analyzer{policies: policies}
+func New(policies *policy.PolicySet) *Analyzer {
+	return &Analyzer{
+		policies: policies,
+		stats:    make(map[string]int),
+	}
 }
 
-// 이벤트를 받아서 정책에 걸리는지 검사하고 결과를 출력하는 코드
-func (a *Analyzer) HandleExec(ev event.ExecEvent) {
-	log.Printf("[exec] pid=%d tgid=%d uid=%d comm=%s file=%s",
-		ev.Pid, ev.Tgid, ev.Uid, ev.Comm, ev.File)
-
-	for _, p := range a.policies {
-		if policy.MatchExec(p, ev.Comm, ev.File) {
-			log.Printf("[match] policy=%s action=%s pid=%d comm=%s file=%s",
-				p.Name, p.Action, ev.Pid, ev.Comm, ev.File)
+func (a *Analyzer) Analyze(e *event.Event) {
+	for _, pol := range a.policies.Policies {
+		if pol.Matches(e) {
+			a.handleMatch(&pol, e)
 		}
+	}
+}
+
+func (a *Analyzer) handleMatch(pol *policy.Policy, e *event.Event) {
+	a.stats[pol.Name]++
+	
+	timestamp := time.Now()
+	severity := pol.Severity
+	if severity == "" {
+		severity = "INFO"
+	}
+
+	logMsg := fmt.Sprintf("[%s] [%s] Policy=%s Type=%s PID=%d PPID=%d UID=%d Comm=%s Arg1=%s Cgroup=%d Action=%s",
+		timestamp.Format("2006-01-02 15:04:05"),
+		severity,
+		pol.Name,
+		e.Type.String(),
+		e.Pid,
+		e.Ppid,
+		e.Uid,
+		e.Comm,
+		e.Arg1,
+		e.CgroupID,
+		pol.Action,
+	)
+
+	switch pol.Action {
+	case "log":
+		log.Println(logMsg)
+	case "alert":
+		log.Println(logMsg)
+		fmt.Printf("🚨 ALERT: %s - %s (PID=%d, Comm=%s, Arg=%s)\n",
+			pol.Name, pol.Description, e.Pid, e.Comm, e.Arg1)
+	default:
+		log.Println(logMsg)
+	}
+}
+
+func (a *Analyzer) PrintStats() {
+	fmt.Println("\n=== Detection Statistics ===")
+	for name, count := range a.stats {
+		fmt.Printf("%s: %d detections\n", name, count)
 	}
 }

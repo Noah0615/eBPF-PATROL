@@ -1,4 +1,6 @@
-.PHONY: bpf build run clean
+.PHONY: all bpf build clean run
+
+all: bpf build
 
 bpf:
 	$(MAKE) -C bpf
@@ -11,4 +13,4 @@ run: build
 
 clean:
 	$(MAKE) -C bpf clean
-	rm -rf bin
+	rm -rf bin/ gen/*.o
