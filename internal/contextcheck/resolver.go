@@ -23,10 +23,13 @@ func New() *Resolver {
 }
 
 func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
-	// Context는 "지금 분위기가 이상한가?"를 보는 부분이다.
-	// 같은 syscall이라도 누가, 언제, 어떤 파일을 대상으로 했는지에 따라 위험도가 달라진다.
+	// Context는 "지금 상황이 이상한가?"를 보는 부분이다.
+	// 같은 syscall이라도 누가, 어떤 경로에, 어떤 흐름에서 했는지에 따라 다르게 본다.
 	switch e.Type {
 	case event.EventExec:
+		if isRuntimeSetupEvent(e) {
+			return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "container runtime setup event", Score: 0.0}
+		}
 		if isShell(e.Arg1) && !isShell(e.Comm) {
 			return verdict.ContextResult{
 				Verdict: verdict.ContextAnomalous,
@@ -42,8 +45,6 @@ func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
 			}
 		}
 	case event.EventOpen:
-		// cgroupfs나 라이브러리 파일을 읽는 것은 런타임에서 자주 일어나는 정상 행동이다.
-		// 먼저 진짜 위험한 write 시도를 확인하고, 그 다음 정상 노이즈를 제외한다.
 		if isSensitiveWritePath(e.Arg1) && isWriteOpen(e.Flags) {
 			return verdict.ContextResult{
 				Verdict: verdict.ContextAnomalous,
@@ -55,7 +56,6 @@ func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
 			return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "benign runtime file access", Score: 0.0}
 		}
 		if containsAny(e.Arg1, []string{"/etc/shadow", "/proc/kcore", "/root/.ssh"}) {
-			// 민감한 파일을 읽으려는 행동은 강한 이상 신호로 본다.
 			return verdict.ContextResult{
 				Verdict: verdict.ContextAnomalous,
 				Reason:  fmt.Sprintf("sensitive host path access: %s", e.Arg1),
@@ -63,23 +63,24 @@ func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
 			}
 		}
 	case event.EventMount:
-		// mount는 컨테이너 탈출 과정에서 자주 등장하는 행동이다.
+		if isRuntimeSetupEvent(e) || isRuntimeMountPath(e.Arg1, e.Arg2) {
+			return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "container runtime mount setup", Score: 0.0}
+		}
 		return verdict.ContextResult{
 			Verdict: verdict.ContextAnomalous,
 			Reason:  fmt.Sprintf("mount operation from process %q", e.Comm),
 			Score:   0.85,
 		}
 	case event.EventUnshare:
-		// unshare는 새로운 namespace를 만드는 syscall이다.
-		// host namespace로 넘어가려는 공격 흐름에서 중요한 단서가 된다.
+		if isRuntimeSetupEvent(e) {
+			return verdict.ContextResult{Verdict: verdict.ContextNormal, Reason: "container runtime namespace setup", Score: 0.0}
+		}
 		return verdict.ContextResult{
 			Verdict: verdict.ContextAnomalous,
 			Reason:  fmt.Sprintf("namespace unshare from process %q", e.Comm),
 			Score:   0.9,
 		}
 	case event.EventPtrace:
-		// ptrace는 프로세스를 추적하는 기능이다.
-		// root가 아닌 사용자의 ptrace는 더 수상하게 본다.
 		score := 0.75
 		state := verdict.ContextSuspicious
 		if e.Uid != 0 {
@@ -94,8 +95,6 @@ func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
 	}
 
 	if burst := r.recordAndCheckBurst(e); burst != nil {
-		// 너무 많은 이벤트가 짧은 시간에 몰리면 이상할 수 있다.
-		// 다만 로그 폭주를 막기 위해 같은 종류의 burst는 쿨다운을 둔다.
 		return *burst
 	}
 
@@ -104,7 +103,6 @@ func (r *Resolver) Evaluate(e *event.Event) verdict.ContextResult {
 
 func (r *Resolver) recordAndCheckBurst(e *event.Event) *verdict.ContextResult {
 	// 최근 10초 동안 같은 cgroup에서 같은 이벤트가 몇 번 났는지 센다.
-	// 예: open 이벤트가 비정상적으로 많으면 파일 스캔일 수 있다.
 	now := time.Now()
 	key := fmt.Sprintf("%d:%s", e.CgroupID, e.Type.String())
 	windowStart := now.Add(-10 * time.Second)
@@ -155,8 +153,6 @@ func isReverseShellTool(path string) bool {
 }
 
 func isBenignOpenPath(path string, flags uint32) bool {
-	// 프로그램이 시작할 때 libc, locale, timezone 같은 파일을 읽는 것은 정상이다.
-	// 이런 파일까지 경고하면 쓸모없는 알림이 너무 많아진다.
 	if path == "" {
 		return true
 	}
@@ -193,8 +189,6 @@ func isBenignOpenPath(path string, flags uint32) bool {
 }
 
 func isSensitiveWritePath(path string) bool {
-	// 아래 파일들은 컨테이너 탈출 PoC에서 자주 언급되는 위험한 제어 지점이다.
-	// 읽기보다 쓰기 시도가 더 위험하므로 write open인지 함께 확인한다.
 	return containsAny(path, []string{
 		"/sys/fs/cgroup/release_agent",
 		"/sys/fs/cgroup/notify_on_release",
@@ -203,6 +197,30 @@ func isSensitiveWritePath(path string) bool {
 		"/proc/sys/net/",
 		"/proc/sysrq-trigger",
 	})
+}
+
+func isRuntimeSetupEvent(e *event.Event) bool {
+	if strings.HasPrefix(e.Comm, "runc:") {
+		return true
+	}
+	if e.Comm == "exe" && isRuntimeMountPath(e.Arg1, e.Arg2) {
+		return true
+	}
+	return false
+}
+
+func isRuntimeMountPath(values ...string) bool {
+	for _, value := range values {
+		if strings.Contains(value, "/run/containerd/runc/") ||
+			strings.Contains(value, "/run/containerd/io.containerd.runtime.v2.task/") ||
+			strings.Contains(value, "/var/lib/containerd/") ||
+			strings.Contains(value, "/var/lib/kubelet/pods/") ||
+			strings.Contains(value, "/proc/self/fd/") ||
+			strings.Contains(value, "/proc/self/exe") {
+			return true
+		}
+	}
+	return false
 }
 
 func isWriteOpen(flags uint32) bool {

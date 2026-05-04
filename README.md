@@ -37,6 +37,8 @@ Use `--scope all` for local non-Kubernetes experiments. The default
 VS Code server, shells, and node tooling unless their cgroup path looks
 containerized. Kubernetes runtime infrastructure processes such as
 `containerd-shim` are also ignored in `containers` mode.
+Runtime setup events from `runc:*` and runc self-mount paths are suppressed so
+pod creation, `kubectl exec`, and `kubectl cp` do not drown out workload events.
 
 ## Kubernetes intent materialization
 

@@ -29,16 +29,13 @@ func New(mode string) *Filter {
 }
 
 func (f *Filter) ShouldAnalyze(e *event.Event) bool {
-	// Scope Filter는 "우리가 지금 볼 대상인가?"를 먼저 거르는 문지기다.
-	// 기본 모드(containers)에서는 host의 VS Code, kubelet 같은 잡음을 줄이고,
-	// 컨테이너 안에서 나온 이벤트만 분석하려고 한다.
+	// Scope Filter는 "이 이벤트를 우리가 봐야 하나?"를 먼저 고르는 문지기다.
+	// containers 모드에서는 host 잡음과 컨테이너 런타임 준비 동작을 줄인다.
 	if f == nil || f.mode == ModeAll {
 		return true
 	}
 
-	if isRuntimeInfrastructure(e.Comm) {
-		// containerd-shim 같은 런타임 프로세스는 컨테이너 안 앱이 아니다.
-		// 이런 프로세스는 cgroup 파일을 많이 읽어서 오탐을 만들기 쉽다.
+	if isRuntimeInfrastructure(e) {
 		return false
 	}
 
@@ -53,15 +50,38 @@ func (f *Filter) ShouldAnalyze(e *event.Event) bool {
 	return allowed
 }
 
-func isRuntimeInfrastructure(comm string) bool {
-	// Kubernetes/Container runtime을 움직이는 도우미 프로세스들이다.
-	// 공격자가 아니라 시스템 관리자가 일하는 소리인 경우가 대부분이다.
-	switch comm {
+func isRuntimeInfrastructure(e *event.Event) bool {
+	// runc:[2:INIT] 같은 프로세스는 컨테이너 안 앱이 아니라 런타임이
+	// 컨테이너를 만들거나 kubectl exec/cp를 준비하는 과정에서 생긴다.
+	if strings.HasPrefix(e.Comm, "runc:") {
+		return true
+	}
+
+	// comm이 exe로 보이는 /proc/self/exe mount는 runc 자기 자신을 준비하는
+	// 정상 동작이라 공격 이벤트와 분리한다.
+	if e.Comm == "exe" && isRuntimePath(e.Arg1, e.Arg2) {
+		return true
+	}
+
+	switch e.Comm {
 	case "containerd", "containerd-shim", "kubelet", "dockerd", "cri-o", "crio", "conmon", "runc":
 		return true
 	default:
 		return false
 	}
+}
+
+func isRuntimePath(values ...string) bool {
+	for _, value := range values {
+		if strings.Contains(value, "/run/containerd/runc/") ||
+			strings.Contains(value, "/run/containerd/io.containerd.runtime.v2.task/") ||
+			strings.Contains(value, "/var/lib/containerd/") ||
+			strings.Contains(value, "/var/lib/kubelet/pods/") ||
+			strings.Contains(value, "/proc/self/exe") {
+			return true
+		}
+	}
+	return false
 }
 
 func processID(e *event.Event) uint32 {
@@ -72,8 +92,7 @@ func processID(e *event.Event) uint32 {
 }
 
 func processLooksContainerized(pid uint32) (bool, bool) {
-	// /proc/<pid>/cgroup 파일을 보면 이 프로세스가 어느 cgroup에 있는지 알 수 있다.
-	// kubepods, docker, containerd 같은 단어가 있으면 컨테이너 쪽 이벤트로 본다.
+	// /proc/<pid>/cgroup을 읽어서 Kubernetes/container cgroup인지 확인한다.
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
 	if err != nil {
 		return false, false
