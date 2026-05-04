@@ -6,13 +6,15 @@ CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES)
 
 OUTPUT := ../gen
 
-.PHONY: all clean
+.PHONY: all clean FORCE
 
 all: $(OUTPUT)/patrol_bpfel.o
 
-$(OUTPUT)/patrol_bpfel.o: patrol.bpf.c vmlinux.h common.h
+$(OUTPUT)/patrol_bpfel.o: FORCE patrol.bpf.c vmlinux.h common.h
 	@mkdir -p $(OUTPUT)
 	$(CLANG) $(CFLAGS) -c patrol.bpf.c -o $@
+
+FORCE:
 
 clean:
 	rm -f $(OUTPUT)/patrol_bpfel.o

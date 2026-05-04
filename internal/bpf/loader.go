@@ -58,6 +58,9 @@ func LoadObjects(objPath string) (*Objects, *ringbuf.Reader, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("load spec: %w", err)
 	}
+	if err := validateSpec(spec); err != nil {
+		return nil, nil, err
+	}
 
 	objs := &Objects{}
 	if err := spec.LoadAndAssign(objs, nil); err != nil {
@@ -95,4 +98,25 @@ func LoadObjects(objPath string) (*Objects, *ringbuf.Reader, error) {
 	}
 
 	return objs, rd, nil
+}
+
+func validateSpec(spec *ebpf.CollectionSpec) error {
+	requiredPrograms := []string{
+		"trace_execve",
+		"trace_openat",
+		"trace_clone",
+		"trace_ptrace",
+		"trace_mount",
+		"trace_socket",
+		"trace_unshare",
+	}
+	for _, name := range requiredPrograms {
+		if _, ok := spec.Programs[name]; !ok {
+			return fmt.Errorf("BPF object is missing program %q; rebuild it with `make clean && make bpf`", name)
+		}
+	}
+	if _, ok := spec.Maps["events"]; !ok {
+		return fmt.Errorf("BPF object is missing map %q; rebuild it with `make clean && make bpf`", "events")
+	}
+	return nil
 }
