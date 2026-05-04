@@ -1,0 +1,21 @@
+policies:
+  - name: detect-bash-exec
+    type: exec
+    match:
+      file_contains:
+        - "/bash"
+    action: log
+
+  - name: detect-python-exec
+    type: exec
+    match:
+      file_contains:
+        - "python"
+    action: log
+
+  - name: detect-shadow-open
+    type: open
+    match:
+      path_contains:
+        - "/etc/shadow"
+    action: log
