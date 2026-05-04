@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: patrol-poc
+  labels:
+    app: nginx
+    role: patrol-poc
+spec:
+  restartPolicy: Never
+  containers:
+    - name: poc
+      image: python:3.12-bookworm
+      command: ["/bin/sh", "-c", "sleep 3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsUser: 0
+        runAsGroup: 0
+        capabilities:
+          drop: ["ALL"]
