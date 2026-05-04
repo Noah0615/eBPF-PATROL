@@ -101,6 +101,11 @@ func (w *Watcher) sync(ctx context.Context) {
 
 		containerID := firstContainerID(info.pod)
 		for _, match := range matches {
+			materializedAt := now
+			if existing, ok := w.intents.LookupMaterialized(match.CgroupID); ok {
+				materializedAt = existing.MaterializedAt
+			}
+
 			next[match.CgroupID] = intent.MaterializedIntent{
 				Intent:         info.intent,
 				PodName:        info.pod.Metadata.Name,
@@ -109,7 +114,7 @@ func (w *Watcher) sync(ctx context.Context) {
 				ContainerID:    containerID,
 				CgroupPath:     match.Path,
 				MaterializedBy: "kubernetes",
-				MaterializedAt: now,
+				MaterializedAt: materializedAt,
 			}
 		}
 	}
