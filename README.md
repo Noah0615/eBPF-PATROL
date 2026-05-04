@@ -86,6 +86,18 @@ The BPF LSM hooks use this map for immediate kernel decisions:
 This is the first kernel-side fast path. The userspace 3-way engine still runs
 for explainability and telemetry.
 
+Admin policy is also injected into an eBPF map. `deny` policies for `open`
+events are converted to compact `parent/name` keys:
+
+```text
+/etc/shadow          -> etc/shadow
+/proc/kcore          -> proc/kcore
+/var/run/docker.sock -> run/docker.sock
+```
+
+Those targets are stored in `hard_deny_names`, and `lsm/file_open` checks that map
+before allowing the open.
+
 BPF LSM requires kernel support. Check the lab kernel with:
 
 ```bash

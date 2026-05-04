@@ -20,6 +20,7 @@ type Objects struct {
 	LSMFileOpen  *ebpf.Program `ebpf:"lsm_file_open"`
 	Events       *ebpf.Map     `ebpf:"events"`
 	IntentFlags  *ebpf.Map     `ebpf:"intent_flags"`
+	HardDenyNames *ebpf.Map    `ebpf:"hard_deny_names"`
 
 	links []link.Link
 }
@@ -62,6 +63,9 @@ func (o *Objects) Close() {
 	}
 	if o.IntentFlags != nil {
 		_ = o.IntentFlags.Close()
+	}
+	if o.HardDenyNames != nil {
+		_ = o.HardDenyNames.Close()
 	}
 }
 
@@ -151,6 +155,9 @@ func validateSpec(spec *ebpf.CollectionSpec) error {
 	}
 	if _, ok := spec.Maps["intent_flags"]; !ok {
 		return fmt.Errorf("BPF object is missing map %q; rebuild it with `make clean && make bpf`", "intent_flags")
+	}
+	if _, ok := spec.Maps["hard_deny_names"]; !ok {
+		return fmt.Errorf("BPF object is missing map %q; rebuild it with `make clean && make bpf`", "hard_deny_names")
 	}
 	return nil
 }

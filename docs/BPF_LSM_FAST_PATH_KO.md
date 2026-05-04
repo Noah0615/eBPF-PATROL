@@ -55,9 +55,43 @@ LSM은 Linux Security Module의 줄임말이다.
 - `/etc/shadow` open
 - `/proc/kcore` open
 
+## 3. Admin Policy Map 주입
+
+관리자가 `configs/policies.yaml`에 적은 hard deny 정책도 eBPF map에 들어간다.
+
+예를 들어 YAML에 이런 정책이 있으면:
+
+```yaml
+- name: deny-shadow-access
+  type: open
+  match:
+    path_contains:
+      - /etc/shadow
+  action: deny
+```
+
+Go agent가 이 경로에서 부모 디렉터리 이름과 파일 이름을 뽑는다.
+
+```text
+/etc/shadow -> etc/shadow
+```
+
+그리고 eBPF map에 넣는다.
+
+```text
+hard_deny_names["etc/shadow"] = 1
+```
+
+이제 커널의 `lsm/file_open`은 파일을 열기 직전에 basename을 읽고,
+부모 디렉터리 이름과 함께 `hard_deny_names` map에 있으면 바로
+`-EPERM`으로 거절한다.
+
+즉, 정책을 바꾸기 위해 BPF C 코드를 고칠 필요가 줄어든다.
+YAML 정책을 바꾸고 agent가 다시 시작되면 policy map이 새로 채워진다.
+
 주의: `file_open` LSM fast path는 verifier 제약 때문에 전체 경로가 아니라
-파일 이름 basename을 먼저 본다. 그래서 커널 fast path는 `shadow`, `kcore`,
-`docker.sock`처럼 빠른 차단 신호를 처리하고, 전체 경로 설명과 자세한
+`parent/name`을 먼저 본다. 그래서 커널 fast path는 `etc/shadow`, `proc/kcore`,
+`run/docker.sock`처럼 빠른 차단 신호를 처리하고, 전체 경로 설명과 자세한
 분석은 기존 tracepoint/userspace 엔진이 계속 담당한다.
 
 ## 아직 userspace가 맡는 것

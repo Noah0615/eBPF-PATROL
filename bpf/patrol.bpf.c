@@ -19,6 +19,13 @@ struct {
     __type(value, struct intent_flags);
 } intent_flags SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, struct hard_deny_name);
+    __type(value, __u32);
+} hard_deny_names SEC(".maps");
+
 static __always_inline int str_eq(const char *s, const char *lit, int max)
 {
     int i;
@@ -64,12 +71,6 @@ static __always_inline int is_shell_path(const char *path)
 static __always_inline int is_docker_sock_name(const char *name)
 {
     return str_eq(name, "docker.sock", ARG_LEN);
-}
-
-static __always_inline int is_hard_deny_name(const char *name)
-{
-    return str_eq(name, "shadow", ARG_LEN) ||
-           str_eq(name, "kcore", ARG_LEN);
 }
 
 static __always_inline void fill_common(struct event *e)
@@ -145,8 +146,12 @@ SEC("lsm/file_open")
 int BPF_PROG(lsm_file_open, struct file *file, int ret)
 {
     struct dentry *dentry;
+    struct dentry *parent;
     const unsigned char *name_ptr;
+    const unsigned char *parent_ptr;
     char name[ARG_LEN];
+    struct hard_deny_name deny_key = {};
+    __u32 *deny;
     __u64 cgroup_id;
     struct intent_flags *flags;
 
@@ -161,8 +166,16 @@ int BPF_PROG(lsm_file_open, struct file *file, int ret)
     if (!name_ptr)
         return 0;
     bpf_probe_read_kernel_str(name, sizeof(name), name_ptr);
+    __builtin_memcpy(deny_key.name, name, sizeof(deny_key.name));
+    parent = BPF_CORE_READ(dentry, d_parent);
+    if (parent) {
+        parent_ptr = BPF_CORE_READ(parent, d_name.name);
+        if (parent_ptr)
+            bpf_probe_read_kernel_str(deny_key.parent, sizeof(deny_key.parent), parent_ptr);
+    }
 
-    if (is_hard_deny_name(name)) {
+    deny = bpf_map_lookup_elem(&hard_deny_names, &deny_key);
+    if (deny && *deny) {
         emit_lsm_event(EVENT_OPEN, name, 1);
         return -1;
     }

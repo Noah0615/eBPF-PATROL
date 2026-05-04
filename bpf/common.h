@@ -6,6 +6,7 @@
 #define MAX_PATH_LEN 256
 #define MAX_ARGS 6
 #define ARG_LEN 128
+#define HARD_DENY_NAME_LEN 64
 
 enum event_type {
     EVENT_EXEC = 1,
@@ -37,6 +38,11 @@ struct intent_flags {
     __u32 allow_namespace_ops;
     __u32 allow_privilege_ops;
     __u32 allow_docker_sock;
+};
+
+struct hard_deny_name {
+    char parent[HARD_DENY_NAME_LEN];
+    char name[HARD_DENY_NAME_LEN];
 };
 
 #endif /* __COMMON_H */

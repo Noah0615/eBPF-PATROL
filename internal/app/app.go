@@ -57,6 +57,14 @@ func New(opts Options) (*App, error) {
 
 	log.Println("eBPF programs loaded and attached successfully")
 
+	policyUpdater := bpf.NewPolicyMapUpdater(objs.HardDenyNames)
+	hardDenyTargets := policies.HardDenyTargets()
+	if err := policyUpdater.ReplaceHardDenyTargets(hardDenyTargets); err != nil {
+		objs.Close()
+		return nil, err
+	}
+	log.Printf("Injected %d hard deny policy targets into eBPF map", len(hardDenyTargets))
+
 	var watcher *k8s.Watcher
 	if opts.K8sIntents {
 		if opts.K8sMode == "" {
