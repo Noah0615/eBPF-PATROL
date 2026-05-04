@@ -51,9 +51,18 @@ func (f *Filter) ShouldAnalyze(e *event.Event) bool {
 }
 
 func isRuntimeInfrastructure(e *event.Event) bool {
-	// runc:[2:INIT] 같은 프로세스는 컨테이너 안 앱이 아니라 런타임이
-	// 컨테이너를 만들거나 kubectl exec/cp를 준비하는 과정에서 생긴다.
+	// runc:[2:INIT]는 두 가지 상황에서 나온다:
+	// 1. 컨테이너 최초 생성 시 → 런타임 노이즈 (mount, clone 등)
+	// 2. kubectl exec 시 → 실제 워크로드 행위 (exec, shell 등)
+	//
+	// exec 타입의 runc:[2:INIT]는 분석 대상이다 (kubectl exec 탐지).
+	// mount/clone 등은 런타임 준비 동작이므로 필터링한다.
 	if strings.HasPrefix(e.Comm, "runc:") {
+		// exec 이벤트는 통과시킴 — kubectl exec로 shell 실행 탐지에 필수
+		if e.Type.String() == "exec" {
+			return false
+		}
+		// mount, clone 등 다른 이벤트는 런타임 노이즈로 필터링
 		return true
 	}
 
@@ -64,7 +73,11 @@ func isRuntimeInfrastructure(e *event.Event) bool {
 	}
 
 	switch e.Comm {
-	case "containerd", "containerd-shim", "kubelet", "dockerd", "cri-o", "crio", "conmon", "runc":
+	case "containerd-shim", "kubelet", "dockerd", "cri-o", "crio", "conmon", "runc":
+		return true
+	case "containerd":
+		// containerd가 exec 이벤트를 발생시키는 경우는 드물지만,
+		// mount/clone은 런타임 노이즈로 필터링
 		return true
 	default:
 		return false
