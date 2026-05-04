@@ -10,6 +10,9 @@ TMPDIR=$(mktemp -d)
 
 echo "=== Generating self-signed TLS certificate for ${SERVICE}.${NAMESPACE} ==="
 
+# 네임스페이스가 없으면 생성
+kubectl get namespace "${NAMESPACE}" &>/dev/null || kubectl create namespace "${NAMESPACE}"
+
 # CA
 openssl genrsa -out "${TMPDIR}/ca.key" 2048
 openssl req -x509 -new -nodes -key "${TMPDIR}/ca.key" \

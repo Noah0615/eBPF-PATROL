@@ -1,3 +1,11 @@
+# patrol-system 네임스페이스 (ServiceAccount보다 먼저 생성되어야 함)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: patrol-system
+  labels:
+    patrol.ebpf.io/enforce: "false"   # webhook 대상에서 자기 자신 제외
+---
 # patrold agent RBAC
 apiVersion: v1
 kind: ServiceAccount
