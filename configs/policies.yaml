@@ -59,6 +59,15 @@ policies:
         - /run/docker.sock
     action: deny
 
+  - name: deny-core-pattern-write
+    type: open
+    description: "Write access to /proc/sys/kernel/core_pattern (CVE-2025-31133)"
+    severity: CRITICAL
+    match:
+      path_contains:
+        - /proc/sys/kernel/core_pattern
+    action: kill
+
   # Container escape primitives
   - name: detect-mount-syscall
     type: mount
